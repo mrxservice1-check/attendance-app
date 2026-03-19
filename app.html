@@ -292,10 +292,6 @@ select.form-input option{background:var(--card2);}
           <span class="accuracy-warn-icon">⚠️</span>
           <span class="accuracy-warn-text" id="g-accuracy-warn-text"></span>
         </div>
-        <div id="g-accuracy-warn" style="display:none;" class="accuracy-warn">
-          <span class="accuracy-warn-icon">⚠️</span>
-          <span class="accuracy-warn-text" id="g-accuracy-warn-text"></span>
-        </div>
         <div class="status-row">
           <span class="status-label">📏 ระยะห่างจากที่ทำงาน</span>
           <span class="status-val" id="g-distance">-</span>
@@ -373,20 +369,6 @@ select.form-input option{background:var(--card2);}
   </div>
 </div>
 
-<!-- Status Alert Dialog -->
-<div class="status-dialog-overlay" id="status-dialog-overlay">
-  <div class="status-dialog">
-    <div class="status-dialog-icon" id="status-dialog-icon">⚠️</div>
-    <div class="status-dialog-title" id="status-dialog-title">แจ้งเตือน</div>
-    <div class="status-dialog-desc"  id="status-dialog-desc"></div>
-    <div class="status-dialog-time"  id="status-dialog-time" style="display:none;"></div>
-    <div class="status-dialog-btns">
-      <button class="btn btn-primary"   id="status-dialog-action-btn">✅ ดำเนินการต่อ</button>
-      <button class="btn btn-secondary" id="status-dialog-cancel-btn">ยกเลิก</button>
-    </div>
-  </div>
-</div>
-
 <div class="loading-overlay" id="loading">
   <div class="spinner"></div>
   <div class="loading-text" id="loading-text">กำลังโหลด...</div>
@@ -412,8 +394,6 @@ var lineUserId       = '';
 var lineUserName     = '';
 var lineUserPic      = '';
 var checkActionFired = false;
-var gpsMaxAccuracy   = 100;
-var checkActionFired = false;
 var gpsMaxAccuracy   = 100; // โหลดจาก Config: GPS_ACCURACY_MAX (เมตร)
 
 // ==========================================
@@ -430,13 +410,13 @@ document.addEventListener('DOMContentLoaded', function() {
   // startApp ทันที ไม่รอ ไม่มีจอดำ
   startApp();
 
-  // LIFF init — ทำงานได้ทั้ง LINE browser และ Chrome
+  // LIFF background - ถ้าเปิดใน LINE browser
   if (!lineUserId) {
     try {
       liff.init({ liffId: LIFF_ID })
         .then(function() {
           if (!liff.isLoggedIn()) {
-            liff.login({ redirectUri: window.location.href });
+            if (liff.isInClient && liff.isInClient()) { liff.login(); }
             return null;
           }
           return liff.getProfile();
@@ -449,8 +429,8 @@ document.addEventListener('DOMContentLoaded', function() {
           showLineProfile();
           if (typeof checkAutoLogin === 'function') checkAutoLogin();
         })
-        .catch(function() { showGuestProfile(); });
-    } catch(e) { showGuestProfile(); }
+        .catch(function() {});
+    } catch(e) {}
   }
 })
 function startApp() {
@@ -478,13 +458,6 @@ function showLineProfile() {
   if (lineUserPic) { pic.src = lineUserPic; } else { pic.style.display = 'none'; }
   document.getElementById('profile-name').textContent   = lineUserName || '-';
   document.getElementById('profile-sub').textContent    = 'เชื่อมต่อ LINE ✅';
-  document.getElementById('profile-card').style.display = 'flex';
-}
-
-function showGuestProfile() {
-  document.getElementById('profile-pic').style.display  = 'none';
-  document.getElementById('profile-name').textContent   = 'ผู้ใช้งาน';
-  document.getElementById('profile-sub').textContent    = '⚠️ กรุณาเปิดผ่าน LINE เพื่อเช็คอิน';
   document.getElementById('profile-card').style.display = 'flex';
 }
 
@@ -569,6 +542,9 @@ function showScreen(id) {
   window.scrollTo(0, 0);
 }
 
+// ==========================================
+// STATUS DIALOG
+// ==========================================
 function showStatusDialog(opts) {
   document.getElementById('status-dialog-icon').textContent  = opts.icon  || '⚠️';
   document.getElementById('status-dialog-title').textContent = opts.title || 'แจ้งเตือน';
@@ -587,6 +563,9 @@ function showStatusDialog(opts) {
   document.getElementById('status-dialog-overlay').classList.add('show');
 }
 
+// ==========================================
+// LOAD SHIFT & CHECK STATUS
+// ==========================================
 function loadShiftAndGo() {
   showLoading('กำลังตรวจสอบสถานะการเข้างาน...');
   fetch(API_URL + '?action=getShifts')
@@ -612,9 +591,7 @@ function checkStatusAndGo(status) {
   if (isIn && status.checked_in === true && status.checked_out !== true) {
     showStatusDialog({
       icon: '🔒', title: 'คุณเช็คอินแล้ววันนี้!',
-      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้
-กรุณาเช็คเอ้าท์ออกงานก่อน
-แล้วค่อยเช็คอินใหม่ได้ครับ',
+      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้\nกรุณาเช็คเอ้าท์ออกงานก่อน\nแล้วค่อยเช็คอินใหม่ได้ครับ',
       timeText: status.time_in ? '⏰ เวลาเช็คอิน: <span>' + status.time_in + ' น.</span>' : null,
       actionLabel: '📤 ไปเช็คเอ้าท์เลย',
       actionFn: function(){ currentMode = 'out'; goToGPSScreen(); }
@@ -624,8 +601,7 @@ function checkStatusAndGo(status) {
   if (!isIn && status.checked_in !== true) {
     showStatusDialog({
       icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
-      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้
-กรุณาเช็คอินก่อนนะครับ',
+      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้\nกรุณาเช็คอินก่อนนะครับ',
       actionLabel: '📥 ไปเช็คอินเลย',
       actionFn: function(){ currentMode = 'in'; goToGPSScreen(); }
     });
@@ -634,71 +610,7 @@ function checkStatusAndGo(status) {
   if (!isIn && status.checked_out === true) {
     showStatusDialog({
       icon: '✅', title: 'เช็คเอ้าท์แล้ววันนี้!',
-      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้
-หากมีปัญหาให้ติดต่อ HR ครับ',
-      timeText: status.time_out ? '⏰ เวลาเช็คเอ้าท์: <span>' + status.time_out + ' น.</span>' : null,
-      actionLabel: '🏠 กลับหน้าหลัก',
-      actionFn: function(){ showScreen('screen-home'); }
-    });
-    return;
-  }
-  goToGPSScreen();
-}
-
-// ==========================================
-// STATUS DIALOG
-// ==========================================
-function showStatusDialog(opts) {
-  document.getElementById('status-dialog-icon').textContent  = opts.icon  || '⚠️';
-  document.getElementById('status-dialog-title').textContent = opts.title || 'แจ้งเตือน';
-  document.getElementById('status-dialog-desc').textContent  = opts.desc  || '';
-  var timeEl = document.getElementById('status-dialog-time');
-  if (opts.timeText) { timeEl.innerHTML = opts.timeText; timeEl.style.display = 'block'; }
-  else               { timeEl.style.display = 'none'; }
-  var actionBtn = document.getElementById('status-dialog-action-btn');
-  actionBtn.textContent = opts.actionLabel || 'ดำเนินการต่อ';
-  var newBtn = actionBtn.cloneNode(true);
-  actionBtn.parentNode.replaceChild(newBtn, actionBtn);
-  newBtn.addEventListener('click', function(){
-    document.getElementById('status-dialog-overlay').classList.remove('show');
-    if (opts.actionFn) opts.actionFn();
-  });
-  document.getElementById('status-dialog-overlay').classList.add('show');
-}
-
-// ==========================================
-// LOAD SHIFT & CHECK STATUS
-// ==========================================
-
-function checkStatusAndGo(status) {
-  var isIn = currentMode === 'in';
-  if (isIn && status.checked_in === true && status.checked_out !== true) {
-    showStatusDialog({
-      icon: '🔒', title: 'คุณเช็คอินแล้ววันนี้!',
-      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้
-กรุณาเช็คเอ้าท์ออกงานก่อน
-แล้วค่อยเช็คอินใหม่ได้ครับ',
-      timeText: status.time_in ? '⏰ เวลาเช็คอิน: <span>' + status.time_in + ' น.</span>' : null,
-      actionLabel: '📤 ไปเช็คเอ้าท์เลย',
-      actionFn: function(){ currentMode = 'out'; goToGPSScreen(); }
-    });
-    return;
-  }
-  if (!isIn && status.checked_in !== true) {
-    showStatusDialog({
-      icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
-      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้
-กรุณาเช็คอินก่อนนะครับ',
-      actionLabel: '📥 ไปเช็คอินเลย',
-      actionFn: function(){ currentMode = 'in'; goToGPSScreen(); }
-    });
-    return;
-  }
-  if (!isIn && status.checked_out === true) {
-    showStatusDialog({
-      icon: '✅', title: 'เช็คเอ้าท์แล้ววันนี้!',
-      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้
-หากมีปัญหาให้ติดต่อ HR ครับ',
+      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้\nหากมีปัญหาให้ติดต่อ HR ครับ',
       timeText: status.time_out ? '⏰ เวลาเช็คเอ้าท์: <span>' + status.time_out + ' น.</span>' : null,
       actionLabel: '🏠 กลับหน้าหลัก',
       actionFn: function(){ showScreen('screen-home'); }
@@ -1055,173 +967,7 @@ function startGPS() {
           '<span style="color:var(--red);">±' + acc + ' เมตร ❌</span>';
         var warnEl   = document.getElementById('g-accuracy-warn');
         var warnText = document.getElementById('g-accuracy-warn-text');
-        warnText.textContent =
-          'ความแม่นยำต่ำเกินไป (±' + acc + ' ม.) ระบบต้องการ ±' + gpsMaxAccuracy + ' ม. หรือน้อยกว่า
-' +
-          'กรุณากดปฏิเสธ แล้วเปิดใหม่ → เลือก "ตำแหน่งที่แน่นอน"';
-        warnEl.style.display = 'flex';
-        // ยังไม่ lock ปุ่ม Next ทันที — รอให้ processGPS ตัดสินจากระยะทางเอง
-        // แต่ถ้า accuracy เกิน 2× threshold ถือว่าใช้ไม่ได้เลย
-        if (acc > gpsMaxAccuracy * 2) {
-          document.getElementById('gps-result-block').style.display = 'block';
-          document.getElementById('gps-result-block').innerHTML =
-            '<div class="alert-card danger">' +
-            '<div class="alert-icon">📡</div>' +
-            '<div class="alert-title">GPS ไม่แม่นยำพอ</div>' +
-            '<div class="alert-desc">ความแม่นยำ ±' + acc + ' เมตร<br>' +
-            'อุปกรณ์ใช้ตำแหน่งโดยประมาณ (Wi-Fi/เครือข่าย)<br><br>' +
-            '<strong>กรุณาเปิดสิทธิ์ใหม่ → เลือก "แน่นอน"</strong></div></div>';
-          document.getElementById('btn-gps-next').disabled = true;
-          return;
-        }
-      } else {
-        document.getElementById('g-accuracy').innerHTML =
-          '<span style="color:var(--green);">±' + acc + ' เมตร ✅</span>';
-        document.getElementById('g-accuracy-warn').style.display = 'none';
-      }
-
-      processGPS();
-    },
-    function(err) {
-      var msg = err.code === 1 ? 'ไม่ได้รับอนุญาตใช้ตำแหน่ง กรุณาอนุญาตแล้วลองใหม่' :
-                err.code === 2 ? 'รับสัญญาณ GPS ไม่ได้ กรุณาเปิด GPS แล้วลองใหม่'     :
-                'หมดเวลา กรุณาลองใหม่';
-      showGPSError(msg);
-    },
-    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-  );
-}
-
-function processGPS() {
-  var emp      = currentEmp;
-  var distance = calcDistance(gpsData.lat, gpsData.lng, parseFloat(emp.location_lat), parseFloat(emp.location_lng));
-  var radius   = parseInt(emp.radius_m) || 50;
-  var isInZone = distance <= radius;
-  // g-accuracy แสดงผลแล้วใน startGPS พร้อม ✅/❌
-  document.getElementById('g-distance').innerHTML   = '<span class="' + (isInZone ? 'zone-ok' : 'zone-fail') + '">' + distance + ' เมตร</span>';
-  document.getElementById('g-coord').textContent    = gpsData.lat.toFixed(5) + ', ' + gpsData.lng.toFixed(5);
-  var rb = document.getElementById('gps-result-block');
-  rb.style.display = 'block';
-  if (isInZone) {
-    rb.innerHTML = '<div class="alert-card" style="background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);"><div class="alert-icon">✅</div><div style="font-size:16px;font-weight:700;color:var(--green);">อยู่ในพื้นที่</div><div class="alert-desc">ห่างจากที่ทำงาน ' + distance + ' เมตร<br>กดปุ่มด้านล่างเพื่อสแกนใบหน้า</div></div>';
-    document.getElementById('btn-gps-next').disabled = false;
-  } else {
-    rb.innerHTML = '<div class="alert-card danger"><div class="alert-icon">🚫</div><div class="alert-title">อยู่นอกพื้นที่!</div><div class="alert-desc">ระยะห่าง <strong>' + distance + ' เมตร</strong><br>รัศมีที่อนุญาต <strong>' + radius + ' เมตร</strong><br><br><strong>ไม่สามารถเช็คอินได้</strong></div></div>';
-    document.getElementById('btn-gps-next').disabled = true;
-    showToast('🚫 อยู่นอกพื้นที่', 'error');
-  }
-}
-
-function showGPSError(msg) {
-  document.getElementById('g-accuracy').innerHTML = '<span class="zone-fail">ล้มเหลว</span>';
-  var rb = document.getElementById('gps-result-block');
-  rb.style.display = 'block';
-  rb.innerHTML = '<div class="alert-card danger"><div class="alert-icon">❌</div><div class="alert-title">GPS Error</div><div class="alert-desc">' + msg + '</div></div>';
-  showToast('❌ ' + msg, 'error');
-}
-
-// ==========================================
-// FACE VERIFY
-// ==========================================
-function goToFaceScan() {
-  if (!gpsData)      { showToast('❌ ต้องรับสัญญาณ GPS ก่อน', 'error'); return; }
-  if (!modelsLoaded) { showToast('⏳ Face Recognition กำลังโหลด รอสักครู่', 'error'); return; }
-  document.getElementById('btn-retry-face').style.display = 'none';
-  showScreen('screen-face');
-  startVerifyCamera();
-}
-
-function stopAllCameras() {
-  if (autoScanInterval) { clearInterval(autoScanInterval); autoScanInterval = null; }
-  if (verifyStream) { verifyStream.getTracks().forEach(function(t){ t.stop(); }); verifyStream = null; }
-  if (reg2Stream)   { reg2Stream.getTracks().forEach(function(t){ t.stop(); });   reg2Stream   = null; }
-}
-
-function startVerifyCamera() {
-  document.getElementById('verify-face-frame').className  = 'face-frame scanning';
-  document.getElementById('face-status-text').textContent = 'กำลังเปิดกล้อง...';
-  document.getElementById('face-sub-text').textContent    = 'หันหน้าตรง มองกล้องค้างไว้';
-  document.getElementById('confidence-fill').style.width  = '0%';
-  document.getElementById('confidence-text').textContent  = 'ความมั่นใจ: 0%';
-
-  if (verifyStream) { verifyStream.getTracks().forEach(function(t){ t.stop(); }); verifyStream = null; }
-  if (autoScanInterval) { clearInterval(autoScanInterval); autoScanInterval = null; }
-
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-    .then(function(stream) {
-      verifyStream = stream;
-      var v = document.getElementById('verify-video');
-      v.srcObject = stream;
-      function onReady() {
-        v.play().catch(function(){ v.muted = true; v.play().catch(function(){}); });
-        document.getElementById('face-status-text').textContent = '👀 มองกล้องตรงๆ กำลังสแกน...';
-        if (!autoScanInterval) startAutoScan();
-      }
-      if (v.readyState >= 1) { onReady(); } else { v.onloadedmetadata = onReady; }
-      setTimeout(function() {
-        if (!autoScanInterval) { onReady(); }
-      }, 3000);
-    })
-    .catch(function(e) {
-      var msg = e.name === 'NotAllowedError'  ? 'ไม่ได้รับอนุญาตใช้กล้อง' :
-                e.name === 'NotFoundError'    ? 'ไม่พบกล้องในอุปกรณ์' :
-                e.name === 'NotReadableError' ? 'กล้องถูกใช้งานอยู่' :
-                'เปิดกล้องไม่ได้: ' + e.message;
-      document.getElementById('face-status-text').textContent = '❌ ' + msg;
-      document.getElementById('btn-retry-face').style.display = 'flex';
-    });
-}
-
-function startAutoScan() {
-  var scanCount = 0;
-  checkActionFired = false;
-  autoScanInterval = setInterval(function() {
-    var video = document.getElementById('verify-video');
-    if (!video || !verifyStream || checkActionFired) return;
-    faceapi.detectSingleFace(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-      .withFaceLandmarks().withFaceDescriptor()
-      .then(function(det) {
-        if (checkActionFired) return; // ── ป้องกัน Promise ค้างที่ resolve ช้า ──
-        if (!det) {
-          document.getElementById('verify-face-frame').className    = 'face-frame scanning';
-          document.getElementById('face-status-text').textContent   = '👀 มองกล้องตรงๆ...';
-          return;
-        }
-        var stored     = new Float32Array(JSON.parse(currentEmp.face_descriptor));
-        var dist       = faceapi.euclideanDistance(det.descriptor, stored);
-        var confidence = Math.max(0, Math.round((1 - dist) * 100));
-        var isMatch    = dist < FACE_THRESHOLD;
-        document.getElementById('confidence-fill').style.width      = confidence + '%';
-        document.getElementById('confidence-fill').style.background = isMatch ? 'var(--green)' : 'var(--yellow)';
-        document.getElementById('confidence-text').textContent      = 'ความมั่นใจ: ' + confidence + '%';
-        document.getElementById('face-status-text').textContent     = '🔍 ' + confidence + '%';
-        if (isMatch) {
-          scanCount++;
-          document.getElementById('verify-face-frame').className = 'face-frame success';
-          if (scanCount >= 2) {
-            checkActionFired = true; // ── set ก่อน clearInterval ──
-            clearInterval(autoScanInterval); autoScanInterval = null;
-            document.getElementById('face-status-text').textContent     = '✅ ยืนยันตัวตนสำเร็จ!';
-            document.getElementById('face-sub-text').textContent        = 'กำลังบันทึก...';
-            document.getElementById('confidence-fill').style.background = 'var(--green)';
-            stopAllCameras();
-            setTimeout(function(){ doCheckAction(); }, 600);
-          }
-        } else {
-          scanCount = 0;
-          document.getElementById('verify-face-frame').className = 'face-frame scanning';
-        }
-      })
-      .catch(function(){});
-  }, 500);
-}
-
-function doCheckAction() {
-  if (!checkActionFired) return;
-  var isIn = currentMode === 'in';
-  showLoading(isIn ? 'กำลังบันทึกเวลาเข้างาน...' : 'กำลังบันทึกเวลาออกงาน...');
-  fetch(API_URL, {
-    method: 'POST', redirect: 'follow',
+        warnText.textContent =\n'ความแม่นยำต่ำเกินไป (±' + acc + ' ม.) ระบบต้องการ ±' + gpsMaxAccuracy + ' ม. หรือน้อยกว่า\n' +\n'กรุณากดปฏิเสธ แล้วเปิดใหม่ → เลือก "ตำแหน่งที่แน่นอน"';\nwarnEl.style.display = 'flex';\n// ยังไม่ lock ปุ่ม Next ทันที — รอให้ processGPS ตัดสินจากระยะทางเอง\n// แต่ถ้า accuracy เกิน 2× threshold ถือว่าใช้ไม่ได้เลย\nif (acc > gpsMaxAccuracy * 2) {\ndocument.getElementById('gps-result-block').style.display = 'block';\ndocument.getElementById('gps-result-block').innerHTML =\n'<div class="alert-card danger">' +\n'<div class="alert-icon">📡</div>' +\n'<div class="alert-title">GPS ไม่แม่นยำพอ</div>' +\n'<div class="alert-desc">ความแม่นยำ ±' + acc + ' เมตร<br>' +\n'อุปกรณ์ใช้ตำแหน่งโดยประมาณ (Wi-Fi/เครือข่าย)<br><br>' +\n'<strong>กรุณาเปิดสิทธิ์ใหม่ → เลือก "แน่นอน"</strong></div></div>';\ndocument.getElementById('btn-gps-next').disabled = true;\nreturn;\n}\n} else {\ndocument.getElementById('g-accuracy').innerHTML =\n'<span style="color:var(--green);">±' + acc + ' เมตร ✅</span>';\ndocument.getElementById('g-accuracy-warn').style.display = 'none';\n}\n\nprocessGPS();\n},\nfunction(err) {\nvar msg = err.code === 1 ? 'ไม่ได้รับอนุญาตใช้ตำแหน่ง กรุณาอนุญาตแล้วลองใหม่' :\nerr.code === 2 ? 'รับสัญญาณ GPS ไม่ได้ กรุณาเปิด GPS แล้วลองใหม่'     :\n'หมดเวลา กรุณาลองใหม่';\nshowGPSError(msg);\n},\n{ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }\n);\n}\n\nfunction processGPS() {\nvar emp      = currentEmp;\nvar distance = calcDistance(gpsData.lat, gpsData.lng, parseFloat(emp.location_lat), parseFloat(emp.location_lng));\nvar radius   = parseInt(emp.radius_m) || 50;\nvar isInZone = distance <= radius;\n// g-accuracy แสดงผลแล้วใน startGPS พร้อม ✅/❌\ndocument.getElementById('g-distance').innerHTML   = '<span class="' + (isInZone ? 'zone-ok' : 'zone-fail') + '">' + distance + ' เมตร</span>';\ndocument.getElementById('g-coord').textContent    = gpsData.lat.toFixed(5) + ', ' + gpsData.lng.toFixed(5);\nvar rb = document.getElementById('gps-result-block');\nrb.style.display = 'block';\nif (isInZone) {\nrb.innerHTML = '<div class="alert-card" style="background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);"><div class="alert-icon">✅</div><div style="font-size:16px;font-weight:700;color:var(--green);">อยู่ในพื้นที่</div><div class="alert-desc">ห่างจากที่ทำงาน ' + distance + ' เมตร<br>กดปุ่มด้านล่างเพื่อสแกนใบหน้า</div></div>';\ndocument.getElementById('btn-gps-next').disabled = false;\n} else {\nrb.innerHTML = '<div class="alert-card danger"><div class="alert-icon">🚫</div><div class="alert-title">อยู่นอกพื้นที่!</div><div class="alert-desc">ระยะห่าง <strong>' + distance + ' เมตร</strong><br>รัศมีที่อนุญาต <strong>' + radius + ' เมตร</strong><br><br><strong>ไม่สามารถเช็คอินได้</strong></div></div>';\ndocument.getElementById('btn-gps-next').disabled = true;\nshowToast('🚫 อยู่นอกพื้นที่', 'error');\n}\n}\n\nfunction showGPSError(msg) {\ndocument.getElementById('g-accuracy').innerHTML = '<span class="zone-fail">ล้มเหลว</span>';\nvar rb = document.getElementById('gps-result-block');\nrb.style.display = 'block';\nrb.innerHTML = '<div class="alert-card danger"><div class="alert-icon">❌</div><div class="alert-title">GPS Error</div><div class="alert-desc">' + msg + '</div></div>';\nshowToast('❌ ' + msg, 'error');\n}\n\n// ==========================================\n// FACE VERIFY\n// ==========================================\nfunction goToFaceScan() {\nif (!gpsData)      { showToast('❌ ต้องรับสัญญาณ GPS ก่อน', 'error'); return; }\nif (!modelsLoaded) { showToast('⏳ Face Recognition กำลังโหลด รอสักครู่', 'error'); return; }\ndocument.getElementById('btn-retry-face').style.display = 'none';\nshowScreen('screen-face');\nstartVerifyCamera();\n}\n\nfunction stopAllCameras() {\nif (autoScanInterval) { clearInterval(autoScanInterval); autoScanInterval = null; }\nif (verifyStream) { verifyStream.getTracks().forEach(function(t){ t.stop(); }); verifyStream = null; }\nif (reg2Stream)   { reg2Stream.getTracks().forEach(function(t){ t.stop(); });   reg2Stream   = null; }\n}\n\nfunction startVerifyCamera() {\ndocument.getElementById('verify-face-frame').className  = 'face-frame scanning';\ndocument.getElementById('face-status-text').textContent = 'กำลังเปิดกล้อง...';\ndocument.getElementById('face-sub-text').textContent    = 'หันหน้าตรง มองกล้องค้างไว้';\ndocument.getElementById('confidence-fill').style.width  = '0%';\ndocument.getElementById('confidence-text').textContent  = 'ความมั่นใจ: 0%';\n\nif (verifyStream) { verifyStream.getTracks().forEach(function(t){ t.stop(); }); verifyStream = null; }\nif (autoScanInterval) { clearInterval(autoScanInterval); autoScanInterval = null; }\n\nnavigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })\n.then(function(stream) {\nverifyStream = stream;\nvar v = document.getElementById('verify-video');\nv.srcObject = stream;\nfunction onReady() {\nv.play().catch(function(){ v.muted = true; v.play().catch(function(){}); });\ndocument.getElementById('face-status-text').textContent = '👀 มองกล้องตรงๆ กำลังสแกน...';\nif (!autoScanInterval) startAutoScan();\n}\nif (v.readyState >= 1) { onReady(); } else { v.onloadedmetadata = onReady; }\nsetTimeout(function() {\nif (!autoScanInterval) { onReady(); }\n}, 3000);\n})\n.catch(function(e) {\nvar msg = e.name === 'NotAllowedError'  ? 'ไม่ได้รับอนุญาตใช้กล้อง' :\ne.name === 'NotFoundError'    ? 'ไม่พบกล้องในอุปกรณ์' :\ne.name === 'NotReadableError' ? 'กล้องถูกใช้งานอยู่' :\n'เปิดกล้องไม่ได้: ' + e.message;\ndocument.getElementById('face-status-text').textContent = '❌ ' + msg;\ndocument.getElementById('btn-retry-face').style.display = 'flex';\n});\n}\n\nfunction startAutoScan() {\nvar scanCount = 0;\ncheckActionFired = false;\nautoScanInterval = setInterval(function() {\nvar video = document.getElementById('verify-video');\nif (!video || !verifyStream || checkActionFired) return;\nfaceapi.detectSingleFace(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))\n.withFaceLandmarks().withFaceDescriptor()\n.then(function(det) {\nif (checkActionFired) return; // ── ป้องกัน Promise ค้างที่ resolve ช้า ──\nif (!det) {\ndocument.getElementById('verify-face-frame').className    = 'face-frame scanning';\ndocument.getElementById('face-status-text').textContent   = '👀 มองกล้องตรงๆ...';\nreturn;\n}\nvar stored     = new Float32Array(JSON.parse(currentEmp.face_descriptor));\nvar dist       = faceapi.euclideanDistance(det.descriptor, stored);\nvar confidence = Math.max(0, Math.round((1 - dist) * 100));\nvar isMatch    = dist < FACE_THRESHOLD;\ndocument.getElementById('confidence-fill').style.width      = confidence + '%';\ndocument.getElementById('confidence-fill').style.background = isMatch ? 'var(--green)' : 'var(--yellow)';\ndocument.getElementById('confidence-text').textContent      = 'ความมั่นใจ: ' + confidence + '%';\ndocument.getElementById('face-status-text').textContent     = '🔍 ' + confidence + '%';\nif (isMatch) {\nscanCount++;\ndocument.getElementById('verify-face-frame').className = 'face-frame success';\nif (scanCount >= 2) {\ncheckActionFired = true; // ── set ก่อน clearInterval ──\nclearInterval(autoScanInterval); autoScanInterval = null;\ndocument.getElementById('face-status-text').textContent     = '✅ ยืนยันตัวตนสำเร็จ!';\ndocument.getElementById('face-sub-text').textContent        = 'กำลังบันทึก...';\ndocument.getElementById('confidence-fill').style.background = 'var(--green)';\nstopAllCameras();\nsetTimeout(function(){ doCheckAction(); }, 600);\n}\n} else {\nscanCount = 0;\ndocument.getElementById('verify-face-frame').className = 'face-frame scanning';\n}\n})\n.catch(function(){});\n}, 500);\n}\n\nfunction doCheckAction() {\nif (!checkActionFired) return;\nvar isIn = currentMode === 'in';\nshowLoading(isIn ? 'กำลังบันทึกเวลาเข้างาน...' : 'กำลังบันทึกเวลาออกงาน...');\nfetch(API_URL, {\nmethod: 'POST', redirect: 'follow',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action      : isIn ? 'checkIn' : 'checkOut',
@@ -1240,8 +986,7 @@ function doCheckAction() {
           var t = msg.match(/\d{1,2}:\d{2}/);
           showStatusDialog({
             icon: '🔒', title: 'เช็คอินซ้ำ!',
-            desc: 'คุณได้เช็คอินวันนี้ไปแล้ว
-กรุณาเช็คเอ้าท์ออกงานก่อนครับ',
+            desc: 'คุณได้เช็คอินวันนี้ไปแล้ว\nกรุณาเช็คเอ้าท์ออกงานก่อนครับ',
             timeText: t ? '⏰ เวลาเช็คอิน: <span>' + t[0] + ' น.</span>' : null,
             actionLabel: '📤 ไปเช็คเอ้าท์เลย',
             actionFn: function(){ currentMode = 'out'; loadShiftAndGo(); }
@@ -1249,8 +994,7 @@ function doCheckAction() {
         } else if (!isIn && msg.indexOf('ไม่พบการเช็คอิน') >= 0) {
           showStatusDialog({
             icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
-            desc: 'ไม่พบการเช็คอินวันนี้
-กรุณาเช็คอินก่อนนะครับ',
+            desc: 'ไม่พบการเช็คอินวันนี้\nกรุณาเช็คอินก่อนนะครับ',
             actionLabel: '📥 ไปเช็คอินเลย',
             actionFn: function(){ currentMode = 'in'; loadShiftAndGo(); }
           });
