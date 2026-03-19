@@ -292,6 +292,10 @@ select.form-input option{background:var(--card2);}
           <span class="accuracy-warn-icon">⚠️</span>
           <span class="accuracy-warn-text" id="g-accuracy-warn-text"></span>
         </div>
+        <div id="g-accuracy-warn" style="display:none;" class="accuracy-warn">
+          <span class="accuracy-warn-icon">⚠️</span>
+          <span class="accuracy-warn-text" id="g-accuracy-warn-text"></span>
+        </div>
         <div class="status-row">
           <span class="status-label">📏 ระยะห่างจากที่ทำงาน</span>
           <span class="status-val" id="g-distance">-</span>
@@ -369,6 +373,20 @@ select.form-input option{background:var(--card2);}
   </div>
 </div>
 
+<!-- Status Alert Dialog -->
+<div class="status-dialog-overlay" id="status-dialog-overlay">
+  <div class="status-dialog">
+    <div class="status-dialog-icon" id="status-dialog-icon">⚠️</div>
+    <div class="status-dialog-title" id="status-dialog-title">แจ้งเตือน</div>
+    <div class="status-dialog-desc"  id="status-dialog-desc"></div>
+    <div class="status-dialog-time"  id="status-dialog-time" style="display:none;"></div>
+    <div class="status-dialog-btns">
+      <button class="btn btn-primary"   id="status-dialog-action-btn">✅ ดำเนินการต่อ</button>
+      <button class="btn btn-secondary" id="status-dialog-cancel-btn">ยกเลิก</button>
+    </div>
+  </div>
+</div>
+
 <div class="loading-overlay" id="loading">
   <div class="spinner"></div>
   <div class="loading-text" id="loading-text">กำลังโหลด...</div>
@@ -393,6 +411,8 @@ var autoScanInterval = null;
 var lineUserId       = '';
 var lineUserName     = '';
 var lineUserPic      = '';
+var checkActionFired = false;
+var gpsMaxAccuracy   = 100;
 var checkActionFired = false;
 var gpsMaxAccuracy   = 100; // โหลดจาก Config: GPS_ACCURACY_MAX (เมตร)
 
@@ -592,7 +612,9 @@ function checkStatusAndGo(status) {
   if (isIn && status.checked_in === true && status.checked_out !== true) {
     showStatusDialog({
       icon: '🔒', title: 'คุณเช็คอินแล้ววันนี้!',
-      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้\nกรุณาเช็คเอ้าท์ออกงานก่อน\nแล้วค่อยเช็คอินใหม่ได้ครับ',
+      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้
+กรุณาเช็คเอ้าท์ออกงานก่อน
+แล้วค่อยเช็คอินใหม่ได้ครับ',
       timeText: status.time_in ? '⏰ เวลาเช็คอิน: <span>' + status.time_in + ' น.</span>' : null,
       actionLabel: '📤 ไปเช็คเอ้าท์เลย',
       actionFn: function(){ currentMode = 'out'; goToGPSScreen(); }
@@ -602,7 +624,8 @@ function checkStatusAndGo(status) {
   if (!isIn && status.checked_in !== true) {
     showStatusDialog({
       icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
-      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้\nกรุณาเช็คอินก่อนนะครับ',
+      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้
+กรุณาเช็คอินก่อนนะครับ',
       actionLabel: '📥 ไปเช็คอินเลย',
       actionFn: function(){ currentMode = 'in'; goToGPSScreen(); }
     });
@@ -611,7 +634,71 @@ function checkStatusAndGo(status) {
   if (!isIn && status.checked_out === true) {
     showStatusDialog({
       icon: '✅', title: 'เช็คเอ้าท์แล้ววันนี้!',
-      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้\nหากมีปัญหาให้ติดต่อ HR ครับ',
+      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้
+หากมีปัญหาให้ติดต่อ HR ครับ',
+      timeText: status.time_out ? '⏰ เวลาเช็คเอ้าท์: <span>' + status.time_out + ' น.</span>' : null,
+      actionLabel: '🏠 กลับหน้าหลัก',
+      actionFn: function(){ showScreen('screen-home'); }
+    });
+    return;
+  }
+  goToGPSScreen();
+}
+
+// ==========================================
+// STATUS DIALOG
+// ==========================================
+function showStatusDialog(opts) {
+  document.getElementById('status-dialog-icon').textContent  = opts.icon  || '⚠️';
+  document.getElementById('status-dialog-title').textContent = opts.title || 'แจ้งเตือน';
+  document.getElementById('status-dialog-desc').textContent  = opts.desc  || '';
+  var timeEl = document.getElementById('status-dialog-time');
+  if (opts.timeText) { timeEl.innerHTML = opts.timeText; timeEl.style.display = 'block'; }
+  else               { timeEl.style.display = 'none'; }
+  var actionBtn = document.getElementById('status-dialog-action-btn');
+  actionBtn.textContent = opts.actionLabel || 'ดำเนินการต่อ';
+  var newBtn = actionBtn.cloneNode(true);
+  actionBtn.parentNode.replaceChild(newBtn, actionBtn);
+  newBtn.addEventListener('click', function(){
+    document.getElementById('status-dialog-overlay').classList.remove('show');
+    if (opts.actionFn) opts.actionFn();
+  });
+  document.getElementById('status-dialog-overlay').classList.add('show');
+}
+
+// ==========================================
+// LOAD SHIFT & CHECK STATUS
+// ==========================================
+
+function checkStatusAndGo(status) {
+  var isIn = currentMode === 'in';
+  if (isIn && status.checked_in === true && status.checked_out !== true) {
+    showStatusDialog({
+      icon: '🔒', title: 'คุณเช็คอินแล้ววันนี้!',
+      desc: 'คุณได้เช็คอินเข้างานไปแล้วในวันนี้
+กรุณาเช็คเอ้าท์ออกงานก่อน
+แล้วค่อยเช็คอินใหม่ได้ครับ',
+      timeText: status.time_in ? '⏰ เวลาเช็คอิน: <span>' + status.time_in + ' น.</span>' : null,
+      actionLabel: '📤 ไปเช็คเอ้าท์เลย',
+      actionFn: function(){ currentMode = 'out'; goToGPSScreen(); }
+    });
+    return;
+  }
+  if (!isIn && status.checked_in !== true) {
+    showStatusDialog({
+      icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
+      desc: 'คุณยังไม่ได้เช็คอินเข้างานในวันนี้
+กรุณาเช็คอินก่อนนะครับ',
+      actionLabel: '📥 ไปเช็คอินเลย',
+      actionFn: function(){ currentMode = 'in'; goToGPSScreen(); }
+    });
+    return;
+  }
+  if (!isIn && status.checked_out === true) {
+    showStatusDialog({
+      icon: '✅', title: 'เช็คเอ้าท์แล้ววันนี้!',
+      desc: 'คุณได้เช็คเอ้าท์ออกงานแล้วในวันนี้
+หากมีปัญหาให้ติดต่อ HR ครับ',
       timeText: status.time_out ? '⏰ เวลาเช็คเอ้าท์: <span>' + status.time_out + ' น.</span>' : null,
       actionLabel: '🏠 กลับหน้าหลัก',
       actionFn: function(){ showScreen('screen-home'); }
@@ -969,7 +1056,9 @@ function startGPS() {
         var warnEl   = document.getElementById('g-accuracy-warn');
         var warnText = document.getElementById('g-accuracy-warn-text');
         warnText.textContent =
-          'ความแม่นยำต่ำเกินไป (±' + acc + ' ม.) ระบบต้องการ ±' + gpsMaxAccuracy + ' ม. หรือน้อยกว่า\nกรุณากดปฏิเสธ แล้วเปิดใหม่ → เลือก "ตำแหน่งที่แน่นอน"';
+          'ความแม่นยำต่ำเกินไป (±' + acc + ' ม.) ระบบต้องการ ±' + gpsMaxAccuracy + ' ม. หรือน้อยกว่า
+' +
+          'กรุณากดปฏิเสธ แล้วเปิดใหม่ → เลือก "ตำแหน่งที่แน่นอน"';
         warnEl.style.display = 'flex';
         // ยังไม่ lock ปุ่ม Next ทันที — รอให้ processGPS ตัดสินจากระยะทางเอง
         // แต่ถ้า accuracy เกิน 2× threshold ถือว่าใช้ไม่ได้เลย
@@ -1151,7 +1240,8 @@ function doCheckAction() {
           var t = msg.match(/\d{1,2}:\d{2}/);
           showStatusDialog({
             icon: '🔒', title: 'เช็คอินซ้ำ!',
-            desc: 'คุณได้เช็คอินวันนี้ไปแล้ว\nกรุณาเช็คเอ้าท์ออกงานก่อนครับ',
+            desc: 'คุณได้เช็คอินวันนี้ไปแล้ว
+กรุณาเช็คเอ้าท์ออกงานก่อนครับ',
             timeText: t ? '⏰ เวลาเช็คอิน: <span>' + t[0] + ' น.</span>' : null,
             actionLabel: '📤 ไปเช็คเอ้าท์เลย',
             actionFn: function(){ currentMode = 'out'; loadShiftAndGo(); }
@@ -1159,7 +1249,8 @@ function doCheckAction() {
         } else if (!isIn && msg.indexOf('ไม่พบการเช็คอิน') >= 0) {
           showStatusDialog({
             icon: '⚠️', title: 'ยังไม่ได้เช็คอิน!',
-            desc: 'ไม่พบการเช็คอินวันนี้\nกรุณาเช็คอินก่อนนะครับ',
+            desc: 'ไม่พบการเช็คอินวันนี้
+กรุณาเช็คอินก่อนนะครับ',
             actionLabel: '📥 ไปเช็คอินเลย',
             actionFn: function(){ currentMode = 'in'; loadShiftAndGo(); }
           });
